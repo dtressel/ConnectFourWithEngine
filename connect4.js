@@ -1,3 +1,5 @@
+// on branch function list changes
+
 /** Connect Four
  *
  * Player 1 and 2 alternate turns. On each turn, a piece is dropped down a
@@ -268,6 +270,7 @@ for (let x = 0; x < width; x++) {
     if (y === height - 1) {
       spotObj[x * 10 + y].accessible = true;
     }
+    // for some spots, certain pots aren't possible and will remain an empty object
     if (y < height - 3) {
       spotObj[x * 10 + y].vertPot = {
         claimedBy: 0,
@@ -339,8 +342,7 @@ function updateState(x) {
 
 function updatePotInfo(x, y, spot) {
   const legalPots = findLegalPots(x, y, spot);
-  updateSpotObjPots(legalPots);
-  removeRedudentVertPots(x);
+  updateSpotObjPots(changesToDo(legalPots));
 }
 
 function findLegalPots(x, y, spot) {
@@ -368,46 +370,68 @@ function findLegalPots(x, y, spot) {
   return legalPots;
 }
 
-// updates pots in spotObj and player objects
-function updateSpotObjPots(legalPots) {
+// Makes a list of post-move changes to make to the spotObj and players objects
+function changesToDo(legalPots) {
+  console.log('in changesToDo');
+  const toChange = {
+    newlyClaimedPots: [],
+    addedToPots: [],
+    brokenPots: []
+  };
   for (let xPots in legalPots) {
     for (let pot of legalPots[xPots]) {
-      // if move doesn't break pot 
-      if (spotObj[pot][xPots].claimedBy === 0 || spotObj[pot][xPots].claimedBy === currPlayer) {
-        if (spotObj[pot][xPots].claimedBy === 0) {
-          players[currPlayer - 1][xPots][pot] = 1;
-        } else {
-          players[currPlayer - 1][xPots][pot]++;
-        }
-        spotObj[pot][xPots].claimedBy = currPlayer;
-        spotObj[pot][xPots].numClaimed++;
-        const index = spotObj[pot][xPots].spotsEmpty.indexOf(pot);
-        spotObj[pot][xPots].spotsEmpty.splice(index, 1);
-      } else if (spotObj[pot][xPots].claimedBy > 0) {
-        const otherPlayer = spotObj[pot][xPots].claimedBy;
-        delete players[otherPlayer - 1][xPots][pot];
-        spotObj[pot][xPots].claimedBy = -1;
-      } // else if pot is broken ^^
+      switch(spotObj[pot][xPots].claimedBy) {
+        // pot unclaimed
+        case 0:
+          toChange.newlyClaimedPots.push(xPots, pot);
+          break;
+        // pot claimed by current player
+        case currPlayer:
+          toChange.addedToPots.push(xPots, pot);
+          break;
+        // pot claimed by other player
+        default:
+          toChange.brokenPots.push(xPots, pot);
+          break;
+      }
     }
   }
+  // removes redundant vertPot from newly claimed and adds to broken since it will never get fulfilled
+  if (toChange.newlyClaimedPots[0] === 'vertPot' && toChange.addedToPots[0] === 'vertPot') {
+    const removed = toChange.newlyClaimedPots.splice(0, 2);
+    toChange.brokenPots.unshift(removed[0], removed[1]);
+  }
+  console.log('toChange =', toChange);
+  return toChange;
 }
 
-function removeRedudentVertPots(x) {
-  const redundantKeys = [];
-  let relevantKey;
-  // find vertPot ids in column in which last piece was added
-  for (let key of Object.keys(players[currPlayer - 1].vertPot)) {
-    if (+key - x * 10 >= 0 && +key - x * 10 < 10) {
-      redundantKeys.push(+key);
-    }
+function updateSpotObjPots(toChange) {
+  console.log('in updateSpotObjPots');
+  console.log
+  const { newlyClaimedPots: ncp, addedToPots: atp, brokenPots: bp } = toChange;
+  console.log(ncp, atp, bp);
+  for (let i = 0; i < ncp.length; i += 2) {
+    console.log('in ncp loop');
+    players[currPlayer - 1][ncp[i]][ncp[i + 1]] = 1;
+    spotObj[ncp[i + 1]][ncp[i]].claimedBy = currPlayer;
+    spotObj[ncp[i + 1]][ncp[i]].numClaimed++;
+    const index = spotObj[ncp[i + 1]][ncp[i]].spotsEmpty.indexOf(ncp[i + 1]);
+    spotObj[ncp[i + 1]][ncp[i]].spotsEmpty.splice(index, 1);
   }
-  if (redundantKeys.length > 1) {
-    relevantKey = Math.max(...redundantKeys);
-    const index = redundantKeys.indexOf(relevantKey);
-    redundantKeys.splice(index, 1);
-    for (let key of redundantKeys) {
-      delete players[currPlayer - 1].vertPot[key];
+  for (let i = 0; i < atp.length; i += 2) {
+    console.log('in atp loop');
+    players[currPlayer - 1][atp[i]][atp[i + 1]]++;
+    spotObj[atp[i + 1]][atp[i]].numClaimed++;
+    const index = spotObj[atp[i + 1]][atp[i]].spotsEmpty.indexOf(atp[i + 1]);
+    spotObj[atp[i + 1]][atp[i]].spotsEmpty.splice(index, 1);
+  }
+  for (let i = 0; i < bp.length; i += 2) {
+    console.log('in bp loop');
+    if (spotObj[bp[i + 1]][bp[i]].claimedBy > 0) {
+      const otherPlayer = spotObj[bp[i + 1]][bp[i]].claimedBy;
+      delete players[otherPlayer - 1][bp[i]][bp[i + 1]];
     }
+    spotObj[bp[i + 1]][bp[i]].claimedBy = -1;
   }
 }
 
@@ -438,24 +462,45 @@ function startEngine() {
 
 // old*****************************************************************************************************
 
-// function evaluatePosition(playersArray) {
-//   const playersScore = [];
-//   for (let i = 0; i < 2; i++) {
-//     let score = 0;
-//     for (let potObjId of potArray) {
-//       let baseScore = Object.keys(playersArray[i][potObjId]).length;
-//       score += baseScore;
-//       let arrayOfValues = Object.values(playersArray[i][potObjId]);
-//       let sumOfArrayOfValues = 0;
-//       for (let value of arrayOfValues) {
-//         sumOfArrayOfValues += value;
-//       }
-//       let bonus = (sumOfArrayOfValues - baseScore) * .5;
-//       score += bonus;
+// updates pots in spotObj and player objects
+// function updateSpotObjPots(legalPots) {
+//   for (let xPots in legalPots) {
+//     for (let pot of legalPots[xPots]) {
+//       // if move doesn't break pot 
+//       if (spotObj[pot][xPots].claimedBy === 0 || spotObj[pot][xPots].claimedBy === currPlayer) {
+//         if (spotObj[pot][xPots].claimedBy === 0) {
+//           players[currPlayer - 1][xPots][pot] = 1;
+//         } else {
+//           players[currPlayer - 1][xPots][pot]++;
+//         }
+//         spotObj[pot][xPots].claimedBy = currPlayer;
+//         spotObj[pot][xPots].numClaimed++;
+//         const index = spotObj[pot][xPots].spotsEmpty.indexOf(pot);
+//         spotObj[pot][xPots].spotsEmpty.splice(index, 1);
+//       } else if (spotObj[pot][xPots].claimedBy > 0) {
+//         const otherPlayer = spotObj[pot][xPots].claimedBy;
+//         delete players[otherPlayer - 1][xPots][pot];
+//         spotObj[pot][xPots].claimedBy = -1;
+//       } // else if pot is broken ^^
 //     }
-//     playersScore.push(score);
 //   }
-//   console.log(playersScore);
-//   let evaluation = playersScore[0] - playersScore[1];
-//   console.log(evaluation);
+// }
+
+// function removeRedudentVertPots(x) {
+//   const redundantKeys = [];
+//   let relevantKey;
+//   // find vertPot ids in column in which last piece was added
+//   for (let key of Object.keys(players[currPlayer - 1].vertPot)) {
+//     if (+key - x * 10 >= 0 && +key - x * 10 < 10) {
+//       redundantKeys.push(+key);
+//     }
+//   }
+//   if (redundantKeys.length > 1) {
+//     relevantKey = Math.max(...redundantKeys);
+//     const index = redundantKeys.indexOf(relevantKey);
+//     redundantKeys.splice(index, 1);
+//     for (let key of redundantKeys) {
+//       delete players[currPlayer - 1].vertPot[key];
+//     }
+//   }
 // }
